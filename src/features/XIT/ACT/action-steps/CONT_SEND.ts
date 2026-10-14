@@ -16,6 +16,7 @@ import {
   setDeadline,
   applyTemplate,
   saveConditions,
+  findShipPriceInput,
 } from '@src/features/XIT/ACT/action-steps/cont-utils';
 import { billQuantities, MaterialBill } from '@src/features/XIT/ACT/material-bill';
 
@@ -29,17 +30,6 @@ interface Data {
   contOrigin?: string;
   contDest?: string;
   autoProvisionStoreId?: string;
-}
-
-function findPriceInput(anchor: Element) {
-  const named = _$$(anchor, 'input').find(x => x.name === 'price');
-  if (named) {
-    return named;
-  }
-  const groups = _$$(anchor, C.TemplateSelection.group);
-  return _$$(anchor, 'input').find(
-    x => x.inputMode === 'decimal' && !groups.some(group => group.contains(x)),
-  );
 }
 
 export const CONT_SEND = act.addActionStep<Data>({
@@ -123,7 +113,7 @@ export const CONT_SEND = act.addActionStep<Data>({
     // amount for each commodity row. Divide total payment by number of commodities.
     if (data.payment > 0 && materialDetails.length > 0) {
       const pricePerCommodity = Math.round(data.payment / materialDetails.length);
-      const priceInput = findPriceInput(anchor);
+      const priceInput = findShipPriceInput(anchor);
       assert(priceInput, 'Could not find price input');
       selectAndChangeInputValue(priceInput, String(pricePerCommodity));
       log.info(

@@ -55,7 +55,22 @@ declare namespace UserData {
     };
   }
 
+  interface RecurringPackageData {
+    groups: MaterialGroupData[];
+    actions: ActionData[];
+    global: {
+      name: string;
+    };
+    // Days between runs; the package is due once this many days pass since lastRun.
+    intervalDays: number;
+    lastRun?: number;
+  }
+
   type MaterialGroupType = 'Manual' | 'Resupply' | 'Repair' | 'Paste';
+
+  // Paste group only: paste once while editing the package ('Design'), or paste
+  // fresh every run in the execution configure dialog ('Execution', the default).
+  type PasteTiming = 'Design' | 'Execution';
 
   interface MaterialGroupData {
     type: MaterialGroupType;
@@ -68,9 +83,21 @@ declare namespace UserData {
     exclusions?: string[];
     consumablesOnly?: boolean;
     materialFilter?: 'All' | 'Workforce' | 'Production';
+
+    // Paste specific.
+    pasteTiming?: PasteTiming;
+    // Pasted text saved with the package; only used when pasteTiming is 'Design'.
+    pasteText?: string;
   }
 
-  type ActionType = 'CX Buy' | 'MTRA' | 'Refuel' | 'CONT Ship' | 'CONT Trade' | 'GovBurn Data';
+  type ActionType =
+    | 'CX Buy'
+    | 'MTRA'
+    | 'Refuel'
+    | 'CONT Ship'
+    | 'CONT Trade'
+    | 'CONT Send'
+    | 'GovBurn Data';
 
   interface ActionData {
     type: ActionType;
@@ -118,6 +145,13 @@ declare namespace UserData {
     // CONT Trade specific.
     contTradeType?: 'BUYING' | 'SELLING';
     contLocation?: string;
+
+    // CONT Send specific. One draft is created and sent to every recipient in turn,
+    // then deleted. Reuses the Trade (contTradeType/contLocation) or Ship
+    // (contOrigin/contDest/paymentPerTon/autoProvision) fields above depending on kind.
+    recipients?: string[];
+    contractKind?: 'Trade' | 'Ship';
+    autoProvisionStoreId?: string;
   }
 
   interface TaskList {

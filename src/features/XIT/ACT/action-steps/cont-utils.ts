@@ -11,6 +11,7 @@ import { fixed0 } from '@src/utils/format';
 import { contractDraftsStore } from '@src/infrastructure/prun-api/data/contract-drafts';
 import { ActionStepExecuteContext, AssertFn } from '@src/features/XIT/ACT/shared-types';
 import { maxContractDays, minContractDays } from '@src/features/XIT/ACT/actions/cont-limits';
+import { selectRecipient } from '@src/infrastructure/prun-ui/utils/select-recipient';
 
 // Truncate generated text to the game's form limits to avoid field rejection.
 const maxNameLength = 50;
@@ -260,6 +261,21 @@ export async function addMaterials(
 }
 
 /**
+ * Finds the SHIP template's single flat price field, which charges per commodity row
+ * rather than per material unit like the Trade template's per-row price inputs.
+ */
+export function findShipPriceInput(anchor: Element) {
+  const named = _$$(anchor, 'input').find(x => x.name === 'price');
+  if (named) {
+    return named;
+  }
+  const groups = _$$(anchor, C.TemplateSelection.group);
+  return _$$(anchor, 'input').find(
+    x => x.inputMode === 'decimal' && !groups.some(group => group.contains(x)),
+  );
+}
+
+/**
  * Sets the deadline (days to fulfill) input.
  */
 export function setDeadline(ctx: ActionStepExecuteContext<unknown>, anchor: Element, days: number) {
@@ -348,4 +364,96 @@ export async function saveConditions(
   }, 8000);
   assert(saved, 'Contract conditions were not saved');
   log.info('Conditions saved');
+}
+
+/**
+ * Searches for the recipient in the draft's user selector and selects the match.
+ */
+export async function setRecipient(
+  ctx: ActionStepExecuteContext<unknown>,
+  anchor: Element,
+  recipient: string,
+) {
+  const assert: AssertFn = ctx.assert;
+  const { log, setStatus } = ctx;
+
+  setStatus(`Searching for recipient ${recipient}...`);
+
+  const container = await pollUntil(() => _$(anchor, C.UserSelector.container), 5000);
+  assert(container, 'Could not find recipient selector');
+
+  const selected = await selectRecipient(container, recipient);
+  assert(selected, `Could not find recipient: ${recipient}`);
+  log.info(`Recipient set: ${recipient}`);
+}
+
+/**
+ * Clicks the Send button for the currently selected recipient. The draft itself is a
+ * reusable template - sending does not remove it or clear its fields, so the same
+ * draft can be sent to several recipients in a row before it gets discarded.
+ */
+export async function sendToRecipient(
+  ctx: ActionStepExecuteContext<unknown>,
+  tile: PrunTile,
+  recipient: string,
+) {
+  const { anchor } = tile;
+  const assert: AssertFn = ctx.assert;
+  const { log, setStatus } = ctx;
+
+  setStatus(`Sending to ${recipient}...`);
+
+  const sendBtn = await pollUntil(
+    () => findButton(anchor, L.ContractDraftSend.action.send()),
+    5000,
+  );
+  assert(
+    sendBtn &&
+      !(sendBtn as HTMLButtonElement).disabled &&
+      !sendBtn.classList.contains(C.Button.disabled),
+    'Send button is missing or disabled',
+  );
+  await clickElement(sendBtn);
+  await ctx.waitActionFeedback(tile);
+  log.success(`Sent to ${recipient}`);
+}
+
+/**
+ * Deletes the draft from the Contract Drafts list once every recipient has received
+ * their copy, so it does not linger. Deleting only works from the list (CONTD with no
+ * parameter), not from the draft's own detail tile. The list has no naturalId per row,
+ * but it is sorted newest-first, and nothing else creates a draft between this draft's
+ * creation and this call, so it is always the first row.
+ */
+export async function deleteDraftFromList(ctx: ActionStepExecuteContext<unknown>) {
+  const assert: AssertFn = ctx.assert;
+  const { log, setStatus, requestTile } = ctx;
+
+  setStatus('Opening Contract Drafts list...');
+  const listTile = await requestTile('CONTD');
+  assert(listTile, 'Could not open the Contract Drafts list');
+  const { anchor } = listTile;
+
+  setStatus('Finding the draft row...');
+  // Body rows have <td> cells; the header row only has <th> and must be skipped.
+  const firstRow = await pollUntil(
+    () => _$$(anchor, 'tr').find(x => _$$(x, 'td').length > 0),
+    5000,
+  );
+  assert(firstRow, 'Could not find the drafts table rows');
+
+  const deleteLabel = L.ContractDrafts.actions._delete();
+  log.info(`Looking for "${deleteLabel}" button on the first (newest) row`);
+  const deleteBtn = _$$(firstRow, C.Button.btn).find(hasText(deleteLabel));
+  assert(deleteBtn, "Could not find the row's delete button");
+
+  await clickElement(deleteBtn);
+  log.info('Delete button clicked');
+  // Throws and stops the run if the game reports an error or cancellation.
+  // Any confirmation dialog is auto-accepted inside this call.
+  await ctx.waitActionFeedback(listTile);
+
+  const removed = await pollUntil(() => !firstRow.isConnected, 5000);
+  assert(removed, 'Draft row is still present after delete');
+  log.info('Draft deleted');
 }
